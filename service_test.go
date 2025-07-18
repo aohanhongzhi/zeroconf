@@ -10,9 +10,9 @@ import (
 )
 
 var (
-	mdnsName    = "test--xxxxxxxxxxxx"
-	mdnsService = "_test--xxxx._tcp"
-	mdnsSubtype = "_test--xxxx._tcp,_fancy"
+	mdnsName    = "kuaima"
+	mdnsService = "_kuaima._tcp" // linux测试命令 avahi-browse -vr _kuaima._tcp  当然也可以直接ping kuaima.local
+	mdnsSubtype = "_test--kuaima._tcp,_fancy"
 	mdnsDomain  = "local."
 	mdnsPort    = 8888
 )
@@ -33,7 +33,7 @@ func startMDNS(ctx context.Context, port int, name, service, domain string) {
 }
 
 func TestBasic(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Second)
 	defer cancel()
 
 	go startMDNS(ctx, mdnsPort, mdnsName, mdnsService, mdnsDomain)

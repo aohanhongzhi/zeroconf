@@ -43,6 +43,7 @@ func Register(instance, service, domain string, port int, text []string, ifaces 
 	}
 
 	var err error
+	entry.HostName = "kuaima"
 	if entry.HostName == "" {
 		entry.HostName, err = os.Hostname()
 		if err != nil {
@@ -525,7 +526,7 @@ func (s *Server) serviceTypeName(resp *dns.Msg, ttl uint32) {
 }
 
 // Perform probing & announcement
-//TODO: implement a proper probing & conflict resolution
+// TODO: implement a proper probing & conflict resolution
 func (s *Server) probe() {
 	q := new(dns.Msg)
 	q.SetQuestion(s.service.ServiceInstanceName(), dns.TypePTR)
