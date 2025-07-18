@@ -51,7 +51,7 @@ func main() {
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10000)
 	defer cancel()
 
 	log.Println("Browsing for services (IPv4 only)...")
