@@ -25,6 +25,21 @@ const (
 // Register a service by given arguments. This call will take the system's hostname
 // and lookup IP by that hostname.
 func Register(instance, service, domain string, port int, text []string, ifaces []net.Interface) (*Server, error) {
+	return RegisterWithOptions(instance, service, domain, port, text, ifaces)
+}
+
+// RegisterWithOptions registers a service with configurable options.
+func RegisterWithOptions(instance, service, domain string, port int, text []string, ifaces []net.Interface, options ...ServerOption) (*Server, error) {
+	// Apply default configuration and load supplied options.
+	var conf = serverOpts{
+		listenOn: IPv4AndIPv6,
+		ifaces:   ifaces,
+	}
+	for _, o := range options {
+		if o != nil {
+			o(&conf)
+		}
+	}
 	entry := NewServiceEntry(instance, service, domain)
 	entry.Port = port
 	entry.Text = text
@@ -43,7 +58,6 @@ func Register(instance, service, domain string, port int, text []string, ifaces 
 	}
 
 	var err error
-	entry.HostName = "kuaima"
 	if entry.HostName == "" {
 		entry.HostName, err = os.Hostname()
 		if err != nil {
@@ -57,6 +71,7 @@ func Register(instance, service, domain string, port int, text []string, ifaces 
 
 	log.Println("host name: ", entry.HostName)
 
+	ifaces = conf.ifaces
 	if len(ifaces) == 0 {
 		ifaces = listMulticastInterfaces()
 	}
@@ -71,7 +86,7 @@ func Register(instance, service, domain string, port int, text []string, ifaces 
 		return nil, fmt.Errorf("could not determine host IP addresses")
 	}
 
-	s, err := newServer(ifaces)
+	s, err := newServerWithOptions(ifaces, conf)
 	if err != nil {
 		return nil, err
 	}
@@ -86,6 +101,21 @@ func Register(instance, service, domain string, port int, text []string, ifaces 
 // RegisterProxy registers a service proxy. This call will skip the hostname/IP lookup and
 // will use the provided values.
 func RegisterProxy(instance, service, domain string, port int, host string, ips []string, text []string, ifaces []net.Interface) (*Server, error) {
+	return RegisterProxyWithOptions(instance, service, domain, port, host, ips, text, ifaces)
+}
+
+// RegisterProxyWithOptions registers a service proxy with configurable options.
+func RegisterProxyWithOptions(instance, service, domain string, port int, host string, ips []string, text []string, ifaces []net.Interface, options ...ServerOption) (*Server, error) {
+	// Apply default configuration and load supplied options.
+	var conf = serverOpts{
+		listenOn: IPv4AndIPv6,
+		ifaces:   ifaces,
+	}
+	for _, o := range options {
+		if o != nil {
+			o(&conf)
+		}
+	}
 	entry := NewServiceEntry(instance, service, domain)
 	entry.Port = port
 	entry.Text = text
@@ -101,7 +131,7 @@ func RegisterProxy(instance, service, domain string, port int, host string, ips 
 		return nil, fmt.Errorf("missing host name")
 	}
 	if entry.Domain == "" {
-		entry.Domain = "local"
+		entry.Domain = "local."
 	}
 	if entry.Port == 0 {
 		return nil, fmt.Errorf("missing port")
@@ -124,11 +154,12 @@ func RegisterProxy(instance, service, domain string, port int, host string, ips 
 		}
 	}
 
+	ifaces = conf.ifaces
 	if len(ifaces) == 0 {
 		ifaces = listMulticastInterfaces()
 	}
 
-	s, err := newServer(ifaces)
+	s, err := newServerWithOptions(ifaces, conf)
 	if err != nil {
 		return nil, err
 	}
@@ -160,17 +191,47 @@ type Server struct {
 
 // Constructs server structure
 func newServer(ifaces []net.Interface) (*Server, error) {
-	ipv4conn, err4 := joinUdp4Multicast(ifaces)
-	if err4 != nil {
-		log.Printf("[zeroconf] no suitable IPv4 interface: %s", err4.Error())
+	conf := serverOpts{
+		listenOn: IPv4AndIPv6,
+		ifaces:   ifaces,
 	}
-	ipv6conn, err6 := joinUdp6Multicast(ifaces)
-	if err6 != nil {
-		log.Printf("[zeroconf] no suitable IPv6 interface: %s", err6.Error())
+	return newServerWithOptions(ifaces, conf)
+}
+
+// newServerWithOptions constructs server structure with configurable options
+func newServerWithOptions(ifaces []net.Interface, conf serverOpts) (*Server, error) {
+	var ipv4conn *ipv4.PacketConn
+	var ipv6conn *ipv6.PacketConn
+	var err4, err6 error
+
+	// IPv4 connection
+	if (conf.listenOn & IPv4) > 0 {
+		ipv4conn, err4 = joinUdp4Multicast(ifaces)
+		if err4 != nil {
+			log.Printf("[zeroconf] no suitable IPv4 interface: %s", err4.Error())
+		}
 	}
-	if err4 != nil && err6 != nil {
-		// No supported interface left.
-		return nil, fmt.Errorf("no supported interface")
+
+	// IPv6 connection
+	if (conf.listenOn & IPv6) > 0 {
+		ipv6conn, err6 = joinUdp6Multicast(ifaces)
+		if err6 != nil {
+			log.Printf("[zeroconf] no suitable IPv6 interface: %s", err6.Error())
+		}
+	}
+
+	// Check if at least one connection type succeeded
+	if (conf.listenOn&IPv4) > 0 && (conf.listenOn&IPv6) > 0 {
+		// Both requested
+		if err4 != nil && err6 != nil {
+			return nil, fmt.Errorf("no supported interface")
+		}
+	} else if (conf.listenOn&IPv4) > 0 && err4 != nil {
+		// Only IPv4 requested but failed
+		return nil, fmt.Errorf("IPv4 interface failed: %v", err4)
+	} else if (conf.listenOn&IPv6) > 0 && err6 != nil {
+		// Only IPv6 requested but failed
+		return nil, fmt.Errorf("IPv6 interface failed: %v", err6)
 	}
 
 	s := &Server{
@@ -201,6 +262,11 @@ func (s *Server) Shutdown() {
 
 // SetText updates and announces the TXT records
 func (s *Server) SetText(text []string) {
+	s.shutdownLock.Lock()
+	defer s.shutdownLock.Unlock()
+	if s.isShutdown {
+		return
+	}
 	s.service.Text = text
 	s.announceText()
 }
@@ -350,14 +416,20 @@ func isKnownAnswer(resp *dns.Msg, query *dns.Msg) bool {
 	if resp.Answer[0].Header().Rrtype != dns.TypePTR {
 		return false
 	}
-	answer := resp.Answer[0].(*dns.PTR)
+	answer, ok := resp.Answer[0].(*dns.PTR)
+	if !ok {
+		return false
+	}
 
 	for _, known := range query.Answer {
 		hdr := known.Header()
 		if hdr.Rrtype != answer.Hdr.Rrtype {
 			continue
 		}
-		ptr := known.(*dns.PTR)
+		ptr, ok := known.(*dns.PTR)
+		if !ok {
+			continue
+		}
 		if ptr.Ptr == answer.Ptr && hdr.Ttl >= answer.Hdr.Ttl/2 {
 			// log.Printf("skipping known answer: %v", ptr)
 			return true

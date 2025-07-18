@@ -16,7 +16,7 @@ import (
 )
 
 // IPType specifies the IP traffic the client listens for.
-// This does not guarantee that only mDNS entries of this sepcific
+// This does not guarantee that only mDNS entries of this specific
 // type passes. E.g. typical mDNS packets distributed via IPv4, often contain
 // both DNS A and AAAA entries.
 type IPType uint8
@@ -38,7 +38,7 @@ type ClientOption func(*clientOpts)
 
 // SelectIPTraffic selects the type of IP packets (IPv4, IPv6, or both) this
 // instance listens for.
-// This does not guarantee that only mDNS entries of this sepcific
+// This does not guarantee that only mDNS entries of this specific
 // type passes. E.g. typical mDNS packets distributed via IPv4, may contain
 // both DNS A and AAAA entries.
 func SelectIPTraffic(t IPType) ClientOption {
@@ -366,7 +366,7 @@ func (c *client) recv(ctx context.Context, l interface{}, msgCh chan *dns.Msg) {
 	}
 }
 
-// periodicQuery sens multiple probes until a valid response is received by
+// periodicQuery sends multiple probes until a valid response is received by
 // the main processing loop or some timeout/cancel fires.
 // TODO: move error reporting to shutdown function as periodicQuery is called from
 // go routine context.
